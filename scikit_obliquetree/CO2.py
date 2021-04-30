@@ -1,9 +1,120 @@
 from copy import deepcopy
 
 import numpy as np
+from numba import njit
+from numpy.linalg import norm
+from scikit_obliquetree.HHCART import HHCARTNode
+from sklearn.base import BaseEstimator
 
 
-class ContinuouslyOptimizedObliqueRegressionTree:
+@njit(cache=True)
+def np_apply_along_axis(func1d, axis, arr):
+    assert arr.ndim == 2
+    assert axis in [0, 1]
+    if axis == 0:
+        result = np.empty(arr.shape[1])
+        for i in range(len(result)):
+            result[i] = func1d(arr[:, i])
+    else:
+        result = np.empty(arr.shape[0])
+        for i in range(len(result)):
+            result[i] = func1d(arr[i, :])
+    return result
+
+
+@njit(cache=True)
+def np_max(array, axis):
+    return np_apply_along_axis(np.max, axis, array)
+
+
+@njit(cache=True)
+def objective(w, theta_left, theta_right, X, y):
+    loss = np.vstack(
+        (
+            -w.dot(X.T) + (theta_left - y) ** 2,
+            w.dot(X.T) + (theta_right - y) ** 2,
+        )
+    )
+    return (np_max(loss, axis=0) - np.abs(w.dot(X.T))).sum()
+
+
+@njit(cache=True)
+def optimization(
+    X_train,
+    y,
+    left_indices,
+    right_indices,
+    sr,
+    tol,
+    thau,
+    step,
+    nu,
+    max_iter,
+    converge_criterion,
+):
+    n_objects, n_features = X_train.shape
+    w_new = np.zeros(n_features)
+    w_new[sr[0]] = 1.0
+    w_new[-1] = -sr[1]
+    theta_left = y[left_indices].mean()
+    theta_right = y[right_indices].mean()
+    l = []
+    l_old = np.inf
+    l_new = objective(w_new, theta_left, theta_right, X_train, y)
+    it = 0
+    while True:
+        if converge_criterion == "zero_loss" and (np.abs(l_new) <= tol):
+            break
+        if converge_criterion == "no_improvement" and (
+            np.abs(l_old - l_new) <= tol
+        ):
+            break
+
+        it += 1
+        w_old = w_new
+        for i in range(thau):
+            ind_batch = np.random.choice(np.arange(n_objects), size=1)
+            X_batch = X_train[ind_batch, :]
+            y_batch = y[ind_batch]
+
+            s = np.sign((w_old * X_batch).sum())
+
+            if (
+                -(w_new * X_batch).sum() + (theta_left - y_batch) ** 2
+                >= (w_new * X_batch).sum() + (theta_right - y_batch) ** 2
+            ):
+                w_new = w_new + (step * (1 + s) * X_batch).flatten()
+                theta_left = (theta_left - 2 * step * (theta_left - y_batch))[0]
+            else:
+                w_new = w_new - (step * (1 - s) * X_batch).flatten()
+                theta_right = (
+                    theta_right - 2 * step * (theta_right - y_batch)
+                )[0]
+
+            if (w_new * w_new).sum() > nu:
+                w_new = np.sqrt(thau) * w_new / np.linalg.norm(w_new)
+
+        l_old = objective(w_old, theta_left, theta_right, X_train, y)
+        l_new = objective(w_new, theta_left, theta_right, X_train, y)
+        l.append(objective(w_new, theta_left, theta_right, X_train, y))
+        if it >= max_iter:
+            break
+    return theta_left, theta_right, w_new
+
+
+class Node(HHCARTNode):
+    def get_child(self, datum):
+        if self.is_leaf:
+            raise Exception("Leaf node does not have children.")
+        X = deepcopy(datum)
+
+        if X.dot(np.array(self._weights).T) >= 0:
+            return self.left_child
+        else:
+            return self.right_child
+
+
+class ContinuouslyOptimizedObliqueRegressionTree(BaseEstimator):
     def __init__(
         self,
         impurity,
@@ -13,6 +124,8 @@ class ContinuouslyOptimizedObliqueRegressionTree:
         max_iter=100,
         tol=1e-6,
         step=0.1,
+        converge_criterion="no_improvement",
+        **kwargs,
     ):
         self.impurity = impurity
         self.segmentor = segmentor
@@ -21,84 +134,100 @@ class ContinuouslyOptimizedObliqueRegressionTree:
         self.max_iter = max_iter
         self.tol = tol
         self.step = step
+        self.converge_criterion = converge_criterion
+        self._max_depth = kwargs.get("max_depth", None)
+        self._min_samples = kwargs.get("min_samples", 2)
+        self._root = None
+        self._nodes = []
+        assert converge_criterion in ["zero_loss", "no_improvement"]
 
     def fit(self, X, y):
+        self._root = self._generate_node(X, y, 0)
 
-        X_train = deepcopy(X)
+    def _terminate(self, X, y, cur_depth):
+        if self._max_depth != None and cur_depth == self._max_depth:
+            # maximum depth reached.
+            return True
+        elif y.size < self._min_samples:
+            # minimum number of samples reached.
+            return True
+        elif np.unique(y).size == 1:
+            return True
+        else:
+            return False
 
-        impurity, sr, left_indices, right_indices = self.segmentor(
-            X_train, y, self.impurity
-        )
+    def _generate_leaf_node(self, cur_depth, y):
+        node = Node(cur_depth, y, is_leaf=True)
+        self._nodes.append(node)
+        return node
 
-        X_train = np.hstack((X_train, np.ones(X_train.shape[0])[:, np.newaxis]))
-        n_objects, n_features = X_train.shape
-
-        w_new = np.zeros(n_features)
-        w_new[sr[0]] = 1.0
-        w_new[-1] = -sr[1]
-        theta_left = y[left_indices].mean()
-        theta_right = y[right_indices].mean()
-        self.l = []
-        l_old = np.inf
-        l_new = self.objective(w_new, theta_left, theta_right, X_train, y)
-        it = 0
-
-        while np.abs(l_old - l_new) > self.tol:
-            it += 1
-            w_old = w_new
-            for i in range(self.thau):
-                ind_batch = np.random.choice(np.arange(n_objects), size=1)
-                X_batch = X_train[ind_batch, :]
-                y_batch = y[ind_batch]
-
-                s = np.sign((w_old * X_batch).sum())
-
-                if (
-                    -(w_new * X_batch).sum() + (theta_left - y_batch) ** 2
-                    >= (w_new * X_batch).sum() + (theta_right - y_batch) ** 2
-                ):
-                    w_new = w_new + self.step * (1 + s) * X_batch
-                    theta_left = theta_left - 2 * self.step * (
-                        theta_left - y_batch
-                    )
-                else:
-                    w_new = w_new - self.step * (1 - s) * X_batch
-                    theta_right = theta_right - 2 * self.step * (
-                        theta_right - y_batch
-                    )
-
-                if (w_new * w_new).sum() > self.nu:
-                    w_new = np.sqrt(self.thau) * w_new / np.linalg.norm(w_new)
-
-            l_old = self.objective(w_old, theta_left, theta_right, X_train, y)
-            l_new = self.objective(w_new, theta_left, theta_right, X_train, y)
-            self.l.append(
-                self.objective(w_new, theta_left, theta_right, X_train, y)
+    def _generate_node(self, X, y, cur_depth):
+        if self._terminate(X, y, cur_depth):
+            return self._generate_leaf_node(cur_depth, y)
+        else:
+            impurity, sr, left_indices, right_indices = self.segmentor(
+                X, y, self.impurity
             )
-            if it >= self.max_iter:
-                break
 
-        self.weights = w_new
-        self.theta_left = theta_left
-        self.theta_right = theta_right
+            X_stack = np.hstack((X, np.ones(X.shape[0])[:, np.newaxis]))
 
-    def objective(self, w, theta_left, theta_right, X, y):
-        loss = np.vstack(
-            (
-                -w.dot(X.T) + (theta_left - y) ** 2,
-                w.dot(X.T) + (theta_right - y) ** 2,
+            theta_left, theta_right, w_new = optimization(
+                X_stack,
+                y,
+                left_indices,
+                right_indices,
+                sr,
+                self.tol,
+                self.thau,
+                self.step,
+                self.nu,
+                self.max_iter,
+                self.converge_criterion,
             )
-        )
-        return (np.max(loss, axis=0) - np.abs(w.dot(X.T))).sum()
+
+            weights = w_new
+            assert len(weights) == (
+                X.shape[1] + 1
+            ), f"{len(weights), (X.shape[1] + 1)}"
+
+            # generate indices
+            mask = (weights.dot(X_stack.T) >= 0).flatten()
+            left_indices = np.arange(0, len(X))[mask]
+            right_indices = np.arange(0, len(X))[np.logical_not(mask)]
+
+            if np.sum(mask) == 0 or np.sum(np.logical_not(mask)) == 0:
+                return self._generate_leaf_node(cur_depth, y)
+
+            X_left, y_left = X[left_indices], y[left_indices]
+            X_right, y_right = X[right_indices], y[right_indices]
+
+            node = Node(
+                cur_depth,
+                y,
+                split_rules=sr,
+                weights=weights,
+                left_child=self._generate_node(X_left, y_left, cur_depth + 1),
+                right_child=self._generate_node(
+                    X_right, y_right, cur_depth + 1
+                ),
+                is_leaf=False,
+            )
+            self._nodes.append(node)
+            return node
 
     def predict(self, X):
+        X = np.hstack((X, np.ones(X.shape[0])[:, np.newaxis]))
 
-        X_test = deepcopy(X)
-        X_test = np.hstack((X_test, np.ones(X_test.shape[0])[:, np.newaxis]))
-        n_objects, n_features = X_test.shape
-        y = np.zeros(n_objects)
-        mask = (self.weights.dot(X_test.T) >= 0).flatten()
-        y[mask] = self.theta_right
-        y[np.logical_not(mask)] = self.theta_left
+        def predict_single(datum):
+            cur_node = self._root
+            while not cur_node.is_leaf:
+                cur_node = cur_node.get_child(datum)
+            return cur_node.label
 
-        return y
+        if not self._root:
+            raise Exception("Decision tree has not been trained.")
+        size = X.shape[0]
+        predictions = np.empty((size,), dtype=float)
+        for i in range(size):
+            predictions[i] = predict_single(X[i, :])
+        return predictions
