@@ -1,0 +1,10 @@
+# This file contains values from Cookiecutter
+
+default_context:
+  project_name: "scikit-obliquetree"
+  project_description: "Oblique Decision Tree in Python"
+  organization: "ECNU"
+  license: "Apache Software License 2.0"
+  version: "0.1.0"
+  github_name: "zhenlingcn"
+  email: "zhenlingcn@foxmail.com"
