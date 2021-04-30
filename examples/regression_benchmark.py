@@ -1,6 +1,7 @@
 import pandas as pd
 from scikit_obliquetree.BUTIF import BUTIF
 from scikit_obliquetree.CO2 import ContinuouslyOptimizedObliqueRegressionTree
+from scikit_obliquetree.GradientBoosting import GradientBoosting
 from scikit_obliquetree.HHCART import HouseHolderCART
 from scikit_obliquetree.segmentor import MSE, MeanSegmentor
 from sklearn import model_selection
@@ -35,6 +36,36 @@ def run_exps(
     models = [
         ("RF", RandomForestRegressor(max_depth=3)),
         ("GBDT", GradientBoostingRegressor(max_depth=3)),
+        (
+            "BUTIF-GBDT",
+            GradientBoosting(
+                BUTIF(
+                    linear_model=LogisticRegression(max_iter=10000),
+                    task="regression",
+                    max_leaf=8,
+                ),
+                100,
+                shrinkage=0.1,
+            ),
+        ),
+        (
+            "CO2-GBDT",
+            GradientBoosting(
+                ContinuouslyOptimizedObliqueRegressionTree(
+                    MSE(), MeanSegmentor(), thau=500, max_iter=100, max_depth=3
+                ),
+                100,
+                shrinkage=0.1,
+            ),
+        ),
+        (
+            "HHCART-GBDT",
+            GradientBoosting(
+                HouseHolderCART(MSE(), MeanSegmentor(), max_depth=3),
+                100,
+                shrinkage=0.1,
+            ),
+        ),
         (
             "BUTIF",
             BaggingRegressor(

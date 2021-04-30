@@ -1,9 +1,10 @@
+from collections import namedtuple
 from copy import deepcopy
 
 import numpy as np
 import scipy
 import sklearn as skl
-from basic_functions import Struct, piter
+from scikit_obliquetree.basic_functions import Struct, piter
 from sklearn.base import BaseEstimator
 from sklearn.metrics import accuracy_score as accuracy
 from sklearn.tree import DecisionTreeRegressor
@@ -32,10 +33,10 @@ class GradientBoosting(BaseEstimator):
         self,
         base_learner,
         base_learners_count,
-        loss=None,
+        loss_name="square",
         fit_coefs=True,
         refit_tree=True,
-        shrinkage=1,
+        shrinkage=0.1,
         max_fun_evals=200,
         xtol=10 ** -6,
         ftol=1e-6,
@@ -51,21 +52,25 @@ class GradientBoosting(BaseEstimator):
 
         self.coefs = []
         self.base_learners = []
+        self.loss_name = loss_name
+        self.max_fun_evals = max_fun_evals
+        self.xtol = xtol
+        self.ftol = ftol
 
-        if loss == "square":
+        if loss_name == "square":
             self.loss = lambda r, y: 0.5 * (r - y) ** 2
             self.loss_derivative = lambda r, y: (r - y)
             self.task = "regression"
-        elif loss == "exp":
+        elif loss_name == "exp":
             self.loss = lambda r, y: np.exp(-r * y)
             self.loss_derivative = lambda r, y: -(y * np.exp(-r * y))
             self.task = "classification"
-        elif loss == "log":
+        elif loss_name == "log":
             self.loss = lambda r, y: np.log(1 + np.exp(-r * y))
             self.loss_derivative = lambda r, y: -(y / (1 + np.exp(r * y)))
             self.task = "classification"
         else:
-            raise Exception('Not implemented loss "%s"' % loss)
+            raise Exception('Not implemented loss "%s"' % loss_name)
 
     def fit(
         self,
