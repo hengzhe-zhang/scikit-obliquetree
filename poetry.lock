@@ -472,7 +472,7 @@ socks = ["PySocks (>=1.5.6,!=1.5.7)", "win-inet-pton"]
 
 [[package]]
 name = "rich"
-version = "9.13.0"
+version = "10.4.0"
 description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
 category = "main"
 optional = false
@@ -482,7 +482,7 @@ python-versions = ">=3.6,<4.0"
 colorama = ">=0.4.0,<0.5.0"
 commonmark = ">=0.9.0,<0.10.0"
 pygments = ">=2.6.0,<3.0.0"
-typing-extensions = ">=3.7.4,<4.0.0"
+typing-extensions = {version = ">=3.7.4,<4.0.0", markers = "python_version < \"3.8\""}
 
 [package.extras]
 jupyter = ["ipywidgets (>=7.5.1,<8.0.0)"]
@@ -651,7 +651,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pyt
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "7b5b3afbe36844ebd2e8a80b499626a9c6fbd5e2c7265fa3f4bff7cfc399d1c3"
+content-hash = "4b88d957051cb60f19ceb50a4d11ceefe13387ce5603c35f32758299c7607bd4"
 
 [metadata.files]
 appdirs = [
@@ -924,8 +924,8 @@ requests = [
     {file = "requests-2.25.1.tar.gz", hash = "sha256:27973dd4a904a4f13b263a19c866c13b92a39ed1c964655f025f3f8d3d75b804"},
 ]
 rich = [
-    {file = "rich-9.13.0-py3-none-any.whl", hash = "sha256:9004f6449c89abadf689dad6f92393e760b8c3a8a8c4ea6d8d474066307c0e66"},
-    {file = "rich-9.13.0.tar.gz", hash = "sha256:d59e94a0e3e686f0d268fe5c7060baa1bd6744abca71b45351f5850a3aaa6764"},
+    {file = "rich-10.4.0-py3-none-any.whl", hash = "sha256:9fb2404c4e870d4de3837c11d0cd1f26c44725865535caba1379c2343a49f6a1"},
+    {file = "rich-10.4.0.tar.gz", hash = "sha256:6e8a3e2c61e6cf6193bfcffbb89865a0973af7779d3ead913fdbbbc33f457c2c"},
 ]
 safety = [
     {file = "safety-1.10.3-py2.py3-none-any.whl", hash = "sha256:5f802ad5df5614f9622d8d71fedec2757099705c2356f862847c58c6dfe13e84"},
